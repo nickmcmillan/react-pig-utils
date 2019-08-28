@@ -10,28 +10,15 @@ const fs = require('fs')
 const _cliProgress = require('cli-progress')
 const recursive = require('recursive-readdir')
 const sharp = require('sharp')
-const exif = require('exiftool');
+const exif = require('exiftool')
+
+// local utils
+const parseDMS = require('./utils/parseDMS')
 
 const localImgFolder = argv.in
 const cloudinaryFolder = argv.cloudinaryFolder || ''
 
 if (!localImgFolder) throw new Error('Missing argument: --in')
-
-function convertDMSToDD(degrees, minutes, seconds, direction) {
-  const dd = Number(degrees) + Number(minutes) / 60 + Number(seconds) / (60 * 60);
-
-  if (direction == "S" || direction == "W") {
-    dd = dd * -1;
-  } // Don't do anything for N or E
-  return dd;
-}
-
-function parseDMS(input) {
-  // clean up the shitty string provided to us from exiftool
-  // '52 deg 18\' 41.04" N, 4 deg 48\' 57.60" E'
-  const parts = input.trim().replace('deg', '').replace("'", '').replace('"', '').split(/\s+/)
-  return convertDMSToDD(parts[0], parts[1], parts[2], parts[3]);
-}
 
 const cloud_name = process.env.cloud_name
 const api_key = process.env.api_key
@@ -57,7 +44,7 @@ const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, created 
       colors: true,
       exif: true,
       image_metadata: true,
-      overwrite: false,
+      overwrite: true, // replace anything existing in cloudinary
       folder: cloudinaryFolder,
       // context is cloudinary's way of storing meta data about an image
       context: {
@@ -180,7 +167,7 @@ recursive(localImgFolder, async (err, files) => {
       const date = !isRoot ? folderName.substring(breakChar + 1).trim() : null
 
       // GPS EXIF data
-      const gpsData = {
+      let gpsData = {
         lat: null,
         lng: null,
       }
@@ -249,7 +236,12 @@ recursive(localImgFolder, async (err, files) => {
   console.log(`🎉  Done. ${successCount}/${filteredFiles.length} items uploaded successfully`)
 
   if (failedImgs.length) {
+
+    const formatErrors = failedImgs.map(err => {
+      return `➡️  ${err.file} - ${err.reason.message}. HTTP code: ${err.reason.http_code}. \n`
+    })
+
     console.log(`❌  ${failedImgs.length} files failed to upload, see logs below`)
-    console.log(failedImgs)
+    console.log(...formatErrors)
   }
 })
