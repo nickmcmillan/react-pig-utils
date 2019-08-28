@@ -1,0 +1,29 @@
+{
+  "name": "react-pig-utils",
+  "version": "1.0.0",
+  "description": "Utilities for uploading assets to Cloudinary and generating JSON to use with React Pig.",
+  "author": "nickmcmillan",
+  "license": "MIT",
+  "repository": "nickmcmillan/react-pig-utils",
+  "engines": {
+    "node": ">=8",
+    "npm": ">=5"
+  },
+  "scripts": {},
+  "dependencies": {},
+  "devDependencies": {
+    "exif": "^0.6.0",
+    "exif-parser": "^0.1.12",
+    "cli-progress": "^2.1.1",
+    "cloudinary": "^1.13.2",
+    "color-thief-jimp": "^2.0.2",
+    "cross-env": "^5.1.4",
+    "dotenv": "^8.1.0",
+    "exiftool": "^0.0.3",
+    "jimp": "^0.6.4",
+    "jsonfile": "^5.0.0",
+    "minimist": "^1.2.0",
+    "recursive-readdir": "^2.2.2",
+    "sharp": "^0.23.0"
+  }
+}
