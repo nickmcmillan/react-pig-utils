@@ -1,7 +1,7 @@
 function convertDMSToDD(degrees, minutes, seconds, direction) {
-  const dd = Number(degrees) + Number(minutes) / 60 + Number(seconds) / (60 * 60)
+  let dd = Number(degrees) + Number(minutes) / 60 + Number(seconds) / (60 * 60)
 
-  if (direction == "S" || direction == "W") {
+  if (direction === 'S' || direction === 'W') {
     dd = dd * -1
   } // Don't do anything for N or E
   return dd

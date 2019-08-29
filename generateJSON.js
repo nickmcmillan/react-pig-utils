@@ -1,14 +1,13 @@
 /* eslint camelcase: 0 */
 
-// `node generateJSON --cloudinaryFolder=whateverFolderYouWantJsonFor --out=./outputFilename.json`
+// `node generateJSON --cloudinaryFolder=whateverFolderYouWantJsonFrom --out=./outputFilename.json`
 
 require('dotenv').config()
 const argv = require('minimist')(process.argv.slice(2))
 const cloudinary = require('cloudinary')
 const fs = require('fs')
-const ColorThief = require('color-thief-jimp')
-const Jimp = require('jimp')
 const _cliProgress = require('cli-progress')
+const getDominantColor = require('./utils/getDominantColor')
 
 const outputJSONFileName = argv.out || './output.json'
 const cloudinaryFolder = argv.cloudinaryFolder || ''
@@ -54,28 +53,11 @@ const getCloudinaryFolder = ({ resourceType }) => {
   })
 }
 
-function componentToHex(c) {
-  const hex = c.toString(16)
-  return hex.length === 1 ? '0' + hex : hex
-}
 
-function rgbToHex(r, g, b) {
-  return '#' + componentToHex(r) + componentToHex(g) + componentToHex(b)
-}
-
-const getDominantColor = url => new Promise(async (resolve, reject) => {
-  Jimp.read(url).then(sourceImage => {
-    const [r, g, b] = ColorThief.getColor(sourceImage)
-    const hexed = rgbToHex(r, g, b)
-    resolve(hexed)
-  }).catch(err => {
-    reject(err)
-  })
-})
 
 ;(async () => {
   // https://cloudinary.com/documentation/admin_api#optional_parameters
-  // need to run this twice, as cloudinary doesn't have an option to return all types
+  // need to run this function twice, as cloudinary doesn't have an option to return all types
   const cloudinaryImagesArr = await getCloudinaryFolder({ resourceType: 'image' })
   const cloudinaryVideosArr = await getCloudinaryFolder({ resourceType: 'video' })
   const cloudinaryCombinedArr = [...cloudinaryImagesArr, ...cloudinaryVideosArr] // and then just combine them here
@@ -113,7 +95,6 @@ const getDominantColor = url => new Promise(async (resolve, reject) => {
       format,
       context,
     } = img
-
 
     // we need to construct a URL that looks like this example;
     // http://res.cloudinary.com/dzroyrypi/image/upload/h_{{HEIGHT}}/v1549624762/europe/DSCF0310.jpg'

@@ -24,7 +24,9 @@ const cloud_name = process.env.cloud_name
 const api_key = process.env.api_key
 const api_secret = process.env.api_secret
 
-const MAX_IMAGE_DIMENSION = 3000 // width or height. set a limit so you don't upload images too large and risk up your storage limit
+// 3872 = 10 megapixels
+const MAX_IMAGE_DIMENSION = 3872 // width or height. set a limit so you don't upload images too large and risk up your storage limit
+const MAX_VIDEO_DIMENSION = 1024
 
 cloudinary.config({ cloud_name, api_key, api_secret })
 
@@ -76,19 +78,28 @@ const uploadVideoToCloudinary = (file, { location, date, gpsData, created }) => 
   const lng = gpsData.lng ? gpsData.lng.toString() : ''
 
   try {
-    await cloudinary.v2.uploader.upload_large(file, {
+    await cloudinary.v2.uploader.upload(file, {
+      async: true,
+      // eager_async: true,
+      // eager_notification_url: 'https://google.com',
+      // eager: [
+      //   {
+      //     width: MAX_VIDEO_DIMENSION,
+      //     height: MAX_VIDEO_DIMENSION,
+      //     crop: "limit",
+      //   },
+      // ],
       resource_type: "auto", // needs to be "auto" not "video" so that gifs are included too. shrugs.
       // limit the size of the uploaded video
-      width: 1280,
-      height: 1280,
-      eager_async: true,
+      width: MAX_VIDEO_DIMENSION,
+      height: MAX_VIDEO_DIMENSION,
       crop: "limit",
-      colors: true,
-      exif: true,
-      image_metadata: true,
-      overwrite: false,
+      // colors: true,
+      // exif: true,
+      // image_metadata: true,
+      overwrite: true,
       folder: cloudinaryFolder,
-      // context is cloudinary's way of storing meta data about an image
+      // context is cloudinary's way of storing meta data for an image
       context: {
         location,
         date,
@@ -97,11 +108,9 @@ const uploadVideoToCloudinary = (file, { location, date, gpsData, created }) => 
         lng,
       },
     }, function (err, result) {
-
+      
       if (err) reject(err)
-
       resolve(result)
-
     })
 
   } catch (err) {
@@ -156,8 +165,7 @@ recursive(localImgFolder, async (err, files) => {
       // 25 March 2016
       // Amsterdam - Oud-West - Jacob van Lennepstraat, 18 February 2019
       // Beirut, Beirut - Younas Gebayli Street, 13 October 2017
-      // We always know the portion after the last comma is the date
-      // And everything before that is the address
+      // We always know the portion after the last comma is the date, and everything before that is the address
       const folderName = file.split('/')[1]
       const breakChar = folderName.lastIndexOf(',')
 
@@ -167,7 +175,7 @@ recursive(localImgFolder, async (err, files) => {
       const date = !isRoot ? folderName.substring(breakChar + 1).trim() : null
 
       // GPS EXIF data
-      let gpsData = {
+      const gpsData = {
         lat: null,
         lng: null,
       }
@@ -189,7 +197,7 @@ recursive(localImgFolder, async (err, files) => {
         }
 
       } catch (err) {
-        console.log(`Couldn't get GPS data from image ${err}`)
+        console.log(`\n❌  Couldn't get GPS data from ${file} - ${err}`)
       }
 
       // END GPS EXIF data
@@ -216,14 +224,16 @@ recursive(localImgFolder, async (err, files) => {
       }
 
       if (uploadedFileData.err) {
-        console.warn('❌  Error from Cloudinary. Skipping file:', err)
+        console.warn('\n❌  Error from Cloudinary. Skipping file:', err)
         continue
       }
 
       successCount += 1
 
     } catch (err) {
-      console.warn(`❌  Oh dear: Error uploading ${file}:`, err)
+      
+      console.warn(`\n❌  Oh dear. Error uploading ${file}:\n`)
+      console.warn(err)
       failedImgs.push({
         file,
         reason: err
@@ -233,15 +243,18 @@ recursive(localImgFolder, async (err, files) => {
 
   progressBar.stop()
 
-  console.log(`🎉  Done. ${successCount}/${filteredFiles.length} items uploaded successfully`)
+  // just because sometimes the progress bar visually clashes with teh console logs
+  setTimeout(() => {
 
-  if (failedImgs.length) {
+    console.log(`\n🎉  Done. ${successCount}/${filteredFiles.length} items uploaded successfully\n`)
+  
+    if (failedImgs.length) {
+  
+      const formatErrors = failedImgs.map(err => `\n➡️  ${err.file} - ${err.reason.message}. HTTP code: ${err.reason.http_code}`)
+  
+      console.log(`❌  ${failedImgs.length} files failed to upload, see logs below \n`)
+      console.log(...formatErrors)
+    }
+  }, 1000)
 
-    const formatErrors = failedImgs.map(err => {
-      return `➡️  ${err.file} - ${err.reason.message}. HTTP code: ${err.reason.http_code}. \n`
-    })
-
-    console.log(`❌  ${failedImgs.length} files failed to upload, see logs below`)
-    console.log(...formatErrors)
-  }
 })
