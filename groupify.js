@@ -1,9 +1,12 @@
+// Example usage:
+// node groupify --in=./input.json --out=./output.json
+
 const argv = require('minimist')(process.argv.slice(2))
 const jsonfile = require('jsonfile')
 const fs = require('fs')
 
-const groupByDate = require('./src/utils/groupByDate')
-const sortByDate = require('./src/utils/sortByDate')
+const groupByDate = require('./utils/groupByDate')
+const sortByDate = require('./utils/sortByDate')
 
 const inputJSON = argv.in
 const outputJSON = argv.out
