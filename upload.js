@@ -1,7 +1,7 @@
 /* eslint camelcase: 0 */
 
-// node upload.js --in=./yourLocalImgPath/ --cloudinaryFolder=yourFolderName
-
+// Example usage:
+// node upload --in=./yourLocalImgPath/ --cloudinaryFolder=yourCloudinaryFolderName
 
 require('dotenv').config()
 const argv = require('minimist')(process.argv.slice(2))
@@ -14,6 +14,7 @@ const exif = require('exiftool')
 
 // local utils
 const parseDMS = require('./utils/parseDMS')
+const getFileData = require('./utils/getFileData')
 
 const localImgFolder = argv.in
 const cloudinaryFolder = argv.cloudinaryFolder || ''
@@ -24,14 +25,15 @@ const cloud_name = process.env.cloud_name
 const api_key = process.env.api_key
 const api_secret = process.env.api_secret
 
-// 3872 = 10 megapixels
-const MAX_IMAGE_DIMENSION = 3872 // width or height. set a limit so you don't upload images too large and risk up your storage limit
+const logFileName = 'upload-log.txt'
+
+const MAX_IMAGE_DIMENSION = 1920 // width or height. set a limit so you don't upload images too large and risk up your storage limit
 const MAX_VIDEO_DIMENSION = 1024
 
 cloudinary.config({ cloud_name, api_key, api_secret })
 
 const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, created }) => new Promise(async (resolve, reject) => {
-  // Cloudinary only allows strings in its context
+  // Cloudinary only allows String types in its context
   location = location ? location.toString() : ''
   date = date ? date.toString() : ''
   created = created ? created.toString() : ''
@@ -43,9 +45,9 @@ const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, created 
       resource_type: "auto",
       // quality: 100,
       quality: 'auto:best',
-      colors: true,
-      exif: true,
-      image_metadata: true,
+      // colors: true,
+      // exif: true,
+      // image_metadata: true,
       overwrite: true, // replace anything existing in cloudinary
       folder: cloudinaryFolder,
       // context is cloudinary's way of storing meta data about an image
@@ -99,7 +101,6 @@ const uploadVideoToCloudinary = (file, { location, date, gpsData, created }) => 
       // image_metadata: true,
       overwrite: true,
       folder: cloudinaryFolder,
-      // context is cloudinary's way of storing meta data for an image
       context: {
         location,
         date,
@@ -116,13 +117,6 @@ const uploadVideoToCloudinary = (file, { location, date, gpsData, created }) => 
   } catch (err) {
     reject(err)
   }
-})
-
-const getFileData = fileName => new Promise(async resolve => {
-  await fs.stat(fileName, (err, stats) => {
-    if (err) throw new Error(err)
-    resolve(stats)
-  })
 })
 
 let successCount = 0
@@ -160,16 +154,17 @@ recursive(localImgFolder, async (err, files) => {
     const { birthtime: created } = await getFileData(file)
 
     try {
-      // Possible folder name formats;
-      // ./ (image in root folder)
-      // 25 March 2016
-      // Amsterdam - Oud-West - Jacob van Lennepstraat, 18 February 2019
-      // Beirut, Beirut - Younas Gebayli Street, 13 October 2017
-      // We always know the portion after the last comma is the date, and everything before that is the address
+      // Possible folder name variations (examples);
+      // 1) ./
+      // 2) ./25 March 2016
+      // 3) ./Amsterdam - Oud-West - Jacob van Lennepstraat, 18 February 2019
+      // 4) ./Beirut, Beirut - Younas Gebayli Street, 13 October 2017
+      // So we always know the portion after the last comma is the date, and everything before that is the address
       const folderName = file.split('/')[1]
       const breakChar = folderName.lastIndexOf(',')
 
-      // if the file is in the root on the source folder, set location and date to null
+      // If the file is in the root of the source folder (#1 above) and therefore we can't infer any information about it,
+      // set location and date to null
       const isRoot = file.split('/').length === 2
       const location = !isRoot ? folderName.substring(0, breakChar) : null
       const date = !isRoot ? folderName.substring(breakChar + 1).trim() : null
@@ -199,10 +194,8 @@ recursive(localImgFolder, async (err, files) => {
       } catch (err) {
         console.log(`\n❌  Couldn't get GPS data from ${file} - ${err}`)
       }
-
       // END GPS EXIF data
 
-      // this uploads the file and returns all of its juicy metadata
       const fileToLowerCase = file.toLowerCase()
       const isVideo = fileToLowerCase.includes('.mov') || fileToLowerCase.includes('.mp4') || fileToLowerCase.includes('.gif')
 
@@ -211,12 +204,13 @@ recursive(localImgFolder, async (err, files) => {
         uploadedFileData = await uploadVideoToCloudinary(file, { location, date, gpsData, created })
       } else {
 
+        // Resize the file locally first using Sharp before uploading it (to minimise bandwidth usage)
         const fileBuffer = await sharp(file)
           .resize({
             width: MAX_IMAGE_DIMENSION,
             height: MAX_IMAGE_DIMENSION,
             fit: 'inside',
-            withoutEnlargement: true, // otherwise cloudinary enlarges images to be the MAX_IMAGE_DIMENSION. Silly.
+            withoutEnlargement: true, // Otherwise cloudinary enlarges smaller images to be the MAX_IMAGE_DIMENSION. Silly.
           })
           .toBuffer()
 
@@ -232,8 +226,8 @@ recursive(localImgFolder, async (err, files) => {
 
     } catch (err) {
       
-      console.warn(`\n❌  Oh dear. Error uploading ${file}:\n`)
-      console.warn(err)
+      // console.warn(`\n❌  Oh dear. Error uploading ${file}:\n`)
+      // console.warn(err)
       failedImgs.push({
         file,
         reason: err
@@ -243,18 +237,20 @@ recursive(localImgFolder, async (err, files) => {
 
   progressBar.stop()
 
-  // just because sometimes the progress bar visually clashes with teh console logs
+  // A timeout just because sometimes the progress bar visually clashes with the console logs
   setTimeout(() => {
-
     console.log(`\n🎉  Done. ${successCount}/${filteredFiles.length} items uploaded successfully\n`)
   
     if (failedImgs.length) {
   
       const formatErrors = failedImgs.map(err => `\n➡️  ${err.file} - ${err.reason.message}. HTTP code: ${err.reason.http_code}`)
   
-      console.log(`❌  ${failedImgs.length} files failed to upload, see logs below \n`)
+      console.log(`❌  ${failedImgs.length} files failed to upload, see log file ${logFileName} \n`)
       console.log(...formatErrors)
+      fs.appendFile(logFileName, ...formatErrors, () => {
+        console.log(`\n📄  Errors saved to ${logFileName}`)
+      })
     }
-  }, 1000)
+  }, 2000)
 
 })
