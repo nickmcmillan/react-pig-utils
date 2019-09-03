@@ -1,6 +1,6 @@
 /* eslint camelcase: 0 */
 
-// `node generateJSON --cloudinaryFolder=whateverFolderYouWantJsonFrom --out=./outputFilename.json`
+// node generateJSON --cloudinaryFolder=whateverFolderYouWantJsonFrom --out=./outputFilename.json
 
 require('dotenv').config()
 const argv = require('minimist')(process.argv.slice(2))
@@ -16,6 +16,7 @@ const cloud_name = process.env.cloud_name
 const api_key = process.env.api_key
 const api_secret = process.env.api_secret
 const max_results = 500 // is the maximum cloudinary allows. not an issue because we run a recursive function with next_cursor
+const default_dominant_color = '#fff'
 
 cloudinary.config({ cloud_name, api_key, api_secret })
 
@@ -44,7 +45,7 @@ const getCloudinaryFolder = ({ resourceType }) => {
           console.log(`↩️  Received more than ${max_results} results, going back for more...`)
           recursiveGet(res.next_cursor)
         } else {
-          console.log(`✅  Received ${results.length} results from Cloudinary`)
+          console.log(`✅  Received ${results.length} ${resourceType} results from Cloudinary`)
           resolve(results)
         }
       })
@@ -57,7 +58,7 @@ const getCloudinaryFolder = ({ resourceType }) => {
 
 ;(async () => {
   // https://cloudinary.com/documentation/admin_api#optional_parameters
-  // need to run this function twice, as cloudinary doesn't have an option to return all types
+  // need to run this function twice, as cloudinary doesn't have an option to return multiple types
   const cloudinaryImagesArr = await getCloudinaryFolder({ resourceType: 'image' })
   const cloudinaryVideosArr = await getCloudinaryFolder({ resourceType: 'video' })
   const cloudinaryCombinedArr = [...cloudinaryImagesArr, ...cloudinaryVideosArr] // and then just combine them here
@@ -65,7 +66,7 @@ const getCloudinaryFolder = ({ resourceType }) => {
   
   const progressBar = new _cliProgress.Bar({}, _cliProgress.Presets.shades_classic)
   let progressBarVal = 0
-  console.log('📷  Generating JSON')
+  console.log('🍜  Generating JSON')
   progressBar.start(cloudinaryCombinedArr.length, progressBarVal)
 
   for (const img of cloudinaryCombinedArr) {
@@ -73,17 +74,17 @@ const getCloudinaryFolder = ({ resourceType }) => {
     progressBar.update(progressBarVal)
 
     // Cloudinary doesn't provide dominant colors when using the resources API, only when using the resource API.
-    // So it's faster to just get the dominant color ourselves
+    // So we'll use Color Thief and Jimp to generate the dominant color ourselves
     let dominantColor = ''
     // Jimp can't get dominant colours from videos.
     if (img.format === 'mp4' || img.format === 'mov') {
-      dominantColor = '#fff' // use a default
+      dominantColor = default_dominant_color
     } else {
       try {
         dominantColor = await getDominantColor(img.url)
       } catch (err) {
-        console.log(`❌  Error getting dominant color ${err}`)
-        dominantColor = '#fff' // use a default
+        console.log(`❌  Error getting dominant color ${err}, using default: ${default_dominant_color}`)
+        dominantColor = default_dominant_color
       }
     }
 
@@ -96,26 +97,27 @@ const getCloudinaryFolder = ({ resourceType }) => {
       context,
     } = img
 
-    // we need to construct a URL that looks like this example;
-    // http://res.cloudinary.com/dzroyrypi/image/upload/h_{{HEIGHT}}/v1549624762/europe/DSCF0310.jpg'
-    // the {{HEIGHT}} is replaced by React Pig when dyanmically loading different image resolutions
+    // We need to create a URL that looks like this example;
+    // http://res.cloudinary.com/yourCloudinaryName/image/upload/h_{{HEIGHT}}/v1549624762/europe/DSCF0310.jpg'
+    // {{HEIGHT}} is replaced by React Pig when dynamically requesting different image sizes
     const url = `https://res.cloudinary.com/${cloud_name}/image/upload/h_{{HEIGHT}}/v${version}/${public_id}.${format}`
 
     outputArr.push({
       id: public_id.split('/')[1],
-      created: context ? new Date(context.custom.created).getTime() : '', // use epoch as it uses fewer bytes (concerned about huge a JSON file)
+      url,
+      created: context ? new Date(context.custom.created).getTime() : '', // use epoch time as it uses fewer bytes (concerned about huge a JSON file)
       lat: context ? context.custom.lat : '',
       lng: context ? context.custom.lng : '',
-      author: context ? context.custom.author : '',
+      // author: context ? context.custom.author : '',
       dominantColor,
-      url,
       aspectRatio: parseFloat((width / height).toFixed(3), 10), // limit to 3 decimal places
     })
   }
 
   progressBar.stop()
 
-  fs.writeFile(outputJSONFileName, JSON.stringify(outputArr), 'utf8', () => {
+  fs.writeFile(outputJSONFileName, JSON.stringify(outputArr), 'utf8', err => {
+    if (err) throw err
     console.log(`🎉  Done! Generated JSON file: ${outputJSONFileName}`)
   })
 })()
