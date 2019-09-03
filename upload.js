@@ -5,9 +5,8 @@
 
 require('dotenv').config()
 const argv = require('minimist')(process.argv.slice(2))
-const cloudinary = require('cloudinary')
+const cloudinary = require('cloudinary').v2
 const fs = require('fs')
-const _cliProgress = require('cli-progress')
 const recursive = require('recursive-readdir')
 const sharp = require('sharp')
 const exif = require('exiftool')
@@ -16,7 +15,9 @@ const exif = require('exiftool')
 const parseDMS = require('./utils/parseDMS')
 const getFileData = require('./utils/getFileData')
 const getGeocode = require('./utils/getGeocode')
+const getDominantColor = require('./utils/getDominantColor')
 
+const default_dominant_color = '#fff'
 const localImgFolder = argv.in
 const cloudinaryFolder = argv.cloudinaryFolder || ''
 
@@ -33,7 +34,7 @@ const MAX_VIDEO_DIMENSION = 1024
 
 cloudinary.config({ cloud_name, api_key, api_secret })
 
-const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, gpsGeocode, created }) => new Promise(async (resolve, reject) => {
+const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, gpsGeocode, created, dominantColor }, type) => new Promise(async (resolve, reject) => {
   // Cloudinary only allows String types in its context
   location = location ? location.toString() : ''
   date = date ? date.toString() : ''
@@ -41,18 +42,27 @@ const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, gpsGeoco
   const lat = gpsData.lat ? gpsData.lat.toString() : ''
   const lng = gpsData.lng ? gpsData.lng.toString() : ''
 
-  
   const { neighbourhood, city, country, streetName } = gpsGeocode
 
-
-  try {
-    await cloudinary.v2.uploader.upload_stream({
-      resource_type: "auto",
-      // quality: 100,
+  let additionalOptions = {}
+  if (type === 'video') {
+    additionalOptions = {
+      async: true,
+      width: MAX_VIDEO_DIMENSION,
+      height: MAX_VIDEO_DIMENSION,
+      crop: "limit",
+    }
+  } else {
+    additionalOptions = {
       quality: 'auto:best',
-      // colors: true,
-      // exif: true,
-      // image_metadata: true,
+    }
+  }
+
+  console.log(`⬆  Uploading ${type} to Cloudinary`)
+  
+  try {
+    await cloudinary.uploader.upload_stream({
+      resource_type: "auto",
       overwrite: true, // replace anything existing in cloudinary
       folder: cloudinaryFolder,
       // context is cloudinary's way of storing meta data about an image
@@ -63,7 +73,9 @@ const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, gpsGeoco
         lat,
         lng,
         neighbourhood, city, country, streetName,
+        dominantColor,
       },
+      ...additionalOptions,
     }, function (err, result) {
 
       if (err) reject(err)
@@ -71,57 +83,6 @@ const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, gpsGeoco
       resolve(result)
 
     }).end(fileBuffer)
-
-  } catch (err) {
-    reject(err)
-  }
-})
-
-const uploadVideoToCloudinary = (file, { location, date, gpsData, gpsGeocode, created }) => new Promise(async (resolve, reject) => {
-  // Cloudinary only allows strings in its context
-  location = location ? location.toString() : ''
-  date = date ? date.toString() : ''
-  created = created ? created.toString() : ''
-  const lat = gpsData.lat ? gpsData.lat.toString() : ''
-  const lng = gpsData.lng ? gpsData.lng.toString() : ''
-
-  const { neighbourhood, city, country, streetName } = gpsGeocode
-
-  try {
-    await cloudinary.v2.uploader.upload(file, {
-      async: true,
-      // eager_async: true,
-      // eager_notification_url: 'https://google.com',
-      // eager: [
-      //   {
-      //     width: MAX_VIDEO_DIMENSION,
-      //     height: MAX_VIDEO_DIMENSION,
-      //     crop: "limit",
-      //   },
-      // ],
-      resource_type: "auto", // needs to be "auto" not "video" so that gifs are included too. shrugs.
-      // limit the size of the uploaded video
-      width: MAX_VIDEO_DIMENSION,
-      height: MAX_VIDEO_DIMENSION,
-      crop: "limit",
-      // colors: true,
-      // exif: true,
-      // image_metadata: true,
-      overwrite: true,
-      folder: cloudinaryFolder,
-      context: {
-        location,
-        date,
-        created,
-        lat,
-        lng,
-        neighbourhood, city, country, streetName,
-      },
-    }, function (err, result) {
-      
-      if (err) reject(err)
-      resolve(result)
-    })
 
   } catch (err) {
     reject(err)
@@ -146,24 +107,17 @@ recursive(localImgFolder, async (err, files) => {
   })
 
   console.log(`🐕  ${filteredFiles.length} media files found in ${localImgFolder} (and its subfolders)`)
-  console.log(`⬆️  Uploading`)
-
-  const progressBar = new _cliProgress.Bar({}, _cliProgress.Presets.shades_classic)
-  let progressBarVal = 0
-  progressBar.start(filteredFiles.length, progressBarVal)
 
   const failedImgs = []
 
   // loop through each image found
   for (const file of filteredFiles) {
 
-    progressBarVal += 1
-    progressBar.update(progressBarVal)
     // cloudinary doesnt store created data, but we need this. Its useful to know when an image was created.
     const { birthtime: created } = await getFileData(file)
 
     try {
-      // Possible folder name variations (examples);
+      // Possible Apple Photos folder name variations (examples);
       // 1) ./
       // 2) ./25 March 2016
       // 3) ./Amsterdam - Oud-West - Jacob van Lennepstraat, 18 February 2019
@@ -183,6 +137,9 @@ recursive(localImgFolder, async (err, files) => {
       // get the date and filename, then remove the filename
       const date = isRoot ? null : fullPath.substring(breakCharIndex + 1).trim().split('/')[0]
 
+      console.log(`\n♻️  File ${successCount} of ${filteredFiles.length} - ${fullPath}`)
+      console.log(`📁  Apple folder location is ${location || 'not available'} and date is ${date || 'not available'}`)
+
       // GPS EXIF data
       const gpsData = {
         lat: null,
@@ -197,6 +154,8 @@ recursive(localImgFolder, async (err, files) => {
       }
 
       try {
+        console.log(`🌏  Retrieving EXIF data for Lat/Lng`)
+        
         const exifBuffer = fs.readFileSync(file)
         const exifResult = await new Promise((resolve, reject) => {
           exif.metadata(exifBuffer, (err, metadata) => {
@@ -207,12 +166,17 @@ recursive(localImgFolder, async (err, files) => {
 
         if (exifResult.gpsPosition) {
           const [gpsLatitude, gpsLongitude] = exifResult.gpsPosition.split(',')
-  
+          
           gpsData.lat = parseDMS(gpsLatitude)
           gpsData.lng = parseDMS(gpsLongitude)
+          
+          console.log(`🌏  Got lat: ${gpsData.lat}, lng: ${gpsData.lng}`)
 
           if (process.env.google_api) {
+            console.log(`🌍  Doing Google reverse geocode`)
+            
             gpsGeocode = await getGeocode(gpsData)
+            console.log(`🌍  Reverse geocode done, got ${gpsGeocode.neighbourhood}, ${gpsGeocode.streetName}, ${gpsGeocode.city}, ${gpsGeocode.country}`)
           }
         }
 
@@ -224,9 +188,29 @@ recursive(localImgFolder, async (err, files) => {
       const fileToLowerCase = file.toLowerCase()
       const isVideo = fileToLowerCase.includes('.mov') || fileToLowerCase.includes('.mp4') || fileToLowerCase.includes('.gif')
 
+      // Dominant colour stuff
+      let dominantColor = ''
+      // Jimp can't get dominant colours from videos.
+      if (isVideo) {
+        dominantColor = default_dominant_color
+      } else {
+        try {
+          console.log(`🎨  Getting dominant color`)
+          
+          dominantColor = await getDominantColor(file)
+          console.log(`🎨  Done: ${dominantColor}`)
+          
+        } catch (err) {
+          console.log(`❌  Error getting dominant color ${err}, using default: ${default_dominant_color}`)
+          dominantColor = default_dominant_color
+        }
+      }
+
+
       let uploadedFileData
       if (isVideo) {
-        uploadedFileData = await uploadVideoToCloudinary(file, { location, date, gpsData, gpsGeocode, created })
+        const fileBuffer = fs.readFileSync(file)
+        uploadedFileData = await uploadImageToCloudinary(fileBuffer, { location, date, gpsData, gpsGeocode, created, dominantColor }, 'video')
       } else {
 
         // Resize the file locally first using Sharp before uploading it (to minimise bandwidth usage)
@@ -239,7 +223,7 @@ recursive(localImgFolder, async (err, files) => {
           })
           .toBuffer()
 
-        uploadedFileData = await uploadImageToCloudinary(fileBuffer, { location, date, gpsData, gpsGeocode, created })
+        uploadedFileData = await uploadImageToCloudinary(fileBuffer, { location, date, gpsData, gpsGeocode, created, dominantColor }, 'image')
       }
 
       if (uploadedFileData.err) {
@@ -248,11 +232,16 @@ recursive(localImgFolder, async (err, files) => {
       }
 
       successCount += 1
+      console.log(`✅  Done`)
 
     } catch (err) {
+      console.warn(`\n❌  Oh dear. Error uploading ${file}:`)
+      console.warn(err)
+
+      const errMsg = `➡️  ${file} - ${JSON.stringify(err)}\n`
+
+      fs.appendFile(`${localImgFolder}/${logFileName}`, errMsg)
       
-      // console.warn(`\n❌  Oh dear. Error uploading ${file}:\n`)
-      // console.warn(err)
       failedImgs.push({
         file,
         reason: err
@@ -260,22 +249,14 @@ recursive(localImgFolder, async (err, files) => {
     }
   }
 
-  progressBar.stop()
+  console.log(`\n🎉  Done. ${successCount}/${filteredFiles.length} items uploaded successfully\n`)
 
-  // A timeout just because sometimes the progress bar visually clashes with the console logs
-  setTimeout(() => {
-    console.log(`\n🎉  Done. ${successCount}/${filteredFiles.length} items uploaded successfully\n`)
-  
-    if (failedImgs.length) {
-  
-      const formatErrors = failedImgs.map(err => `➡️  ${err.file} - ${err.reason.message}. HTTP code: ${err.reason.http_code}\n`)
-  
-      console.log(`❌  ${failedImgs.length} files failed to upload, see below. Logs also saved to file: ${localImgFolder}/${logFileName} \n`)
-      console.log(...formatErrors)
-      fs.appendFile(`${localImgFolder}/${logFileName}`, ...formatErrors, () => {
-        console.log(`\n📄  Errors saved to ${logFileName}\n`)
-      })
-    }
-  }, 2000)
+  if (failedImgs.length) {
+
+    const formatErrors = failedImgs.map(err => `➡️  ${err.file} - ${JSON.stringify(err)}\n`)
+
+    console.log(`❌  ${failedImgs.length} files failed to upload, see below. Log also saved to file: ${localImgFolder}/${logFileName} \n`)
+    console.log(...formatErrors)
+  }
 
 })

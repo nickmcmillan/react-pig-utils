@@ -5,14 +5,13 @@ const options = {
 
   // Optional depending on the providers
   httpAdapter: 'https', // Default
-  apiKey: process.env.google_api, // for Mapquest, OpenCage, Google Premier
-  formatter: null         // 'gpx', 'string', ...
+  apiKey: process.env.google_api,
+  formatter: null,
 }
 
 const geocoder = NodeGeocoder(options)
 
-
-module.exports = getFileData = gpsData => new Promise(async resolve => {
+module.exports = getGeocode = gpsData => new Promise(async (resolve, reject) => {
   await geocoder.reverse({ lat: gpsData.lat, lon: gpsData.lng })
     .then(function (res) {
 
@@ -27,6 +26,6 @@ module.exports = getFileData = gpsData => new Promise(async resolve => {
 
     })
     .catch(function (err) {
-      console.log(err);
+      reject(err)
     });
 })

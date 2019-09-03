@@ -7,7 +7,6 @@ const argv = require('minimist')(process.argv.slice(2))
 const cloudinary = require('cloudinary')
 const fs = require('fs')
 const _cliProgress = require('cli-progress')
-const getDominantColor = require('./utils/getDominantColor')
 
 const outputJSONFileName = argv.out || './output.json'
 const cloudinaryFolder = argv.cloudinaryFolder || ''
@@ -16,7 +15,6 @@ const cloud_name = process.env.cloud_name
 const api_key = process.env.api_key
 const api_secret = process.env.api_secret
 const max_results = 500 // is the maximum cloudinary allows. not an issue because we run a recursive function with next_cursor
-const default_dominant_color = '#fff'
 
 cloudinary.config({ cloud_name, api_key, api_secret })
 
@@ -31,7 +29,6 @@ const getCloudinaryFolder = ({ resourceType }) => {
         resource_type: resourceType,
         prefix: cloudinaryFolder,
         context: true, // we want that extra data that we previously stored in cloudinary: created, lat, lng
-        colors: true,
         image_metadata: true,
         next_cursor,
         max_results,
@@ -69,24 +66,9 @@ const getCloudinaryFolder = ({ resourceType }) => {
   console.log('🍜  Generating JSON')
   progressBar.start(cloudinaryCombinedArr.length, progressBarVal)
 
-  for (const img of cloudinaryCombinedArr) {
+  for (const mediaItem of cloudinaryCombinedArr) {
     progressBarVal += 1
     progressBar.update(progressBarVal)
-
-    // Cloudinary doesn't provide dominant colors when using the resources API, only when using the resource API.
-    // So we'll use Color Thief and Jimp to generate the dominant color ourselves
-    let dominantColor = ''
-    // Jimp can't get dominant colours from videos.
-    if (img.format === 'mp4' || img.format === 'mov') {
-      dominantColor = default_dominant_color
-    } else {
-      try {
-        dominantColor = await getDominantColor(img.url)
-      } catch (err) {
-        console.log(`❌  Error getting dominant color ${err}, using default: ${default_dominant_color}`)
-        dominantColor = default_dominant_color
-      }
-    }
 
     const {
       width,
@@ -95,21 +77,32 @@ const getCloudinaryFolder = ({ resourceType }) => {
       public_id,
       format,
       context,
-    } = img
+      resource_type,
+    } = mediaItem
 
     // We need to create a URL that looks like this example;
     // http://res.cloudinary.com/yourCloudinaryName/image/upload/h_{{HEIGHT}}/v1549624762/europe/DSCF0310.jpg'
     // {{HEIGHT}} is replaced by React Pig when dynamically requesting different image sizes
-    const url = `https://res.cloudinary.com/${cloud_name}/image/upload/h_{{HEIGHT}}/v${version}/${public_id}.${format}`
+    const url = `https://res.cloudinary.com/${cloud_name}/${resource_type}/upload/h_{{HEIGHT}}/v${version}/${public_id}.${format}`
+
+    // cloudinary puts videos in a subfolder without any choice.
+    // then when runnign this api lookup it returns the same video twice, one with the wrong url. good work cloudinary.
+    // const isBuggySubfolder = public_id.indexOf('/') === public_id.lastIndexOf('/')
+    // if (isBuggySubfolder) continue
 
     outputArr.push({
       id: public_id.split('/')[1],
       url,
       created: context ? new Date(context.custom.created).getTime() : '', // use epoch time as it uses fewer bytes (concerned about huge a JSON file)
+      date: context ? new Date(context.custom.date).getTime() : '',
       lat: context ? context.custom.lat : '',
       lng: context ? context.custom.lng : '',
-      // author: context ? context.custom.author : '',
-      dominantColor,
+      location: context ? context.custom.location : '',
+      neighbourhood: context ? context.custom.neighbourhood : '',
+      city: context ? context.custom.city : '',
+      country: context ? context.custom.country : '',
+      streetName: context ? context.custom.streetName : '',
+      dominantColor: context ? context.custom.dominantColor : '',
       aspectRatio: parseFloat((width / height).toFixed(3), 10), // limit to 3 decimal places
     })
   }
