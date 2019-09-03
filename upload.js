@@ -15,6 +15,7 @@ const exif = require('exiftool')
 // local utils
 const parseDMS = require('./utils/parseDMS')
 const getFileData = require('./utils/getFileData')
+const getGeocode = require('./utils/getGeocode')
 
 const localImgFolder = argv.in
 const cloudinaryFolder = argv.cloudinaryFolder || ''
@@ -32,13 +33,17 @@ const MAX_VIDEO_DIMENSION = 1024
 
 cloudinary.config({ cloud_name, api_key, api_secret })
 
-const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, created }) => new Promise(async (resolve, reject) => {
+const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, gpsGeocode, created }) => new Promise(async (resolve, reject) => {
   // Cloudinary only allows String types in its context
   location = location ? location.toString() : ''
   date = date ? date.toString() : ''
   created = created ? created.toString() : ''
   const lat = gpsData.lat ? gpsData.lat.toString() : ''
   const lng = gpsData.lng ? gpsData.lng.toString() : ''
+
+  
+  const { neighbourhood, city, country, streetName } = gpsGeocode
+
 
   try {
     await cloudinary.v2.uploader.upload_stream({
@@ -57,6 +62,7 @@ const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, created 
         created,
         lat,
         lng,
+        neighbourhood, city, country, streetName,
       },
     }, function (err, result) {
 
@@ -71,13 +77,15 @@ const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, created 
   }
 })
 
-const uploadVideoToCloudinary = (file, { location, date, gpsData, created }) => new Promise(async (resolve, reject) => {
+const uploadVideoToCloudinary = (file, { location, date, gpsData, gpsGeocode, created }) => new Promise(async (resolve, reject) => {
   // Cloudinary only allows strings in its context
   location = location ? location.toString() : ''
   date = date ? date.toString() : ''
   created = created ? created.toString() : ''
   const lat = gpsData.lat ? gpsData.lat.toString() : ''
   const lng = gpsData.lng ? gpsData.lng.toString() : ''
+
+  const { neighbourhood, city, country, streetName } = gpsGeocode
 
   try {
     await cloudinary.v2.uploader.upload(file, {
@@ -107,6 +115,7 @@ const uploadVideoToCloudinary = (file, { location, date, gpsData, created }) => 
         created,
         lat,
         lng,
+        neighbourhood, city, country, streetName,
       },
     }, function (err, result) {
       
@@ -174,12 +183,17 @@ recursive(localImgFolder, async (err, files) => {
       // get the date and filename, then remove the filename
       const date = isRoot ? null : fullPath.substring(breakCharIndex + 1).trim().split('/')[0]
 
-      console.log(isRoot, location, date)
-
       // GPS EXIF data
       const gpsData = {
         lat: null,
         lng: null,
+      }
+
+      let gpsGeocode = {
+        neighbourhood: '',
+        city: '',
+        country: '',
+        streetName: '',
       }
 
       try {
@@ -196,6 +210,10 @@ recursive(localImgFolder, async (err, files) => {
   
           gpsData.lat = parseDMS(gpsLatitude)
           gpsData.lng = parseDMS(gpsLongitude)
+
+          if (process.env.google_api) {
+            gpsGeocode = await getGeocode(gpsData)
+          }
         }
 
       } catch (err) {
@@ -208,7 +226,7 @@ recursive(localImgFolder, async (err, files) => {
 
       let uploadedFileData
       if (isVideo) {
-        uploadedFileData = await uploadVideoToCloudinary(file, { location, date, gpsData, created })
+        uploadedFileData = await uploadVideoToCloudinary(file, { location, date, gpsData, gpsGeocode, created })
       } else {
 
         // Resize the file locally first using Sharp before uploading it (to minimise bandwidth usage)
@@ -221,7 +239,7 @@ recursive(localImgFolder, async (err, files) => {
           })
           .toBuffer()
 
-        uploadedFileData = await uploadImageToCloudinary(fileBuffer, { location, date, gpsData, created })
+        uploadedFileData = await uploadImageToCloudinary(fileBuffer, { location, date, gpsData, gpsGeocode, created })
       }
 
       if (uploadedFileData.err) {
