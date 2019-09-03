@@ -160,14 +160,21 @@ recursive(localImgFolder, async (err, files) => {
       // 3) ./Amsterdam - Oud-West - Jacob van Lennepstraat, 18 February 2019
       // 4) ./Beirut, Beirut - Younas Gebayli Street, 13 October 2017
       // So we always know the portion after the last comma is the date, and everything before that is the address
-      const folderName = file.split('/')[1]
-      const breakChar = folderName.lastIndexOf(',')
 
-      // If the file is in the root of the source folder (#1 above) and therefore we can't infer any information about it,
-      // set location and date to null
-      const isRoot = file.split('/').length === 2
-      const location = !isRoot ? folderName.substring(0, breakChar) : null
-      const date = !isRoot ? folderName.substring(breakChar + 1).trim() : null
+      const localImgFolderWithoutDotSlash = localImgFolder.replace('./', '')
+      const fullPath = file.replace(localImgFolderWithoutDotSlash, '').substring(1)
+      const isRoot = !fullPath.includes('/')
+
+      // find the last index of ','
+      const breakCharIndex = fullPath.lastIndexOf(',')
+      // use that value to split the string. before it is the location, after it is the date and filename
+      // If the file is in the root of the source folder (#1 above) we can't infer any information about it,
+      // so set location and date to null
+      const location = isRoot ? null : fullPath.substring(0, breakCharIndex)
+      // get the date and filename, then remove the filename
+      const date = isRoot ? null : fullPath.substring(breakCharIndex + 1).trim().split('/')[0]
+
+      console.log(isRoot, location, date)
 
       // GPS EXIF data
       const gpsData = {
@@ -243,12 +250,12 @@ recursive(localImgFolder, async (err, files) => {
   
     if (failedImgs.length) {
   
-      const formatErrors = failedImgs.map(err => `\n➡️  ${err.file} - ${err.reason.message}. HTTP code: ${err.reason.http_code}`)
+      const formatErrors = failedImgs.map(err => `➡️  ${err.file} - ${err.reason.message}. HTTP code: ${err.reason.http_code}\n`)
   
-      console.log(`❌  ${failedImgs.length} files failed to upload, see log file ${logFileName} \n`)
+      console.log(`❌  ${failedImgs.length} files failed to upload, see below. Logs also saved to file: ${localImgFolder}/${logFileName} \n`)
       console.log(...formatErrors)
-      fs.appendFile(logFileName, ...formatErrors, () => {
-        console.log(`\n📄  Errors saved to ${logFileName}`)
+      fs.appendFile(`${localImgFolder}/${logFileName}`, ...formatErrors, () => {
+        console.log(`\n📄  Errors saved to ${logFileName}\n`)
       })
     }
   }, 2000)
