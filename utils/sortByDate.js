@@ -3,5 +3,4 @@ const sortByDate = obj => obj.sort((a, b) => {
   return new Date(b.date) - new Date(a.date)
 })
 
-// using old syntax because this function is also used by node
 module.exports = sortByDate

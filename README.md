@@ -50,8 +50,11 @@ Assuming you have a Cloudinary account and have followed the `upload.js` process
 `node generateJSON --cloudinaryFolder=whateverFolderYouWantJsonFrom --out=./outputFilename.json`
 
 ## groupify.js
+Pig React can display images in groups. Most common would be to group by date. `groupify.js` will take the JSON file created by `generateJSON.js`, sort it by date (newest first), group each image by date, and convert it to a format which tells Pig React to render groups.
 
-docs coming.
+Example usage;
+`node groupify --in=./input.json --out=./output.json`
+
 
 ## License
 
