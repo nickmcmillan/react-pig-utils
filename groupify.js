@@ -20,8 +20,8 @@ jsonfile.readFile(inputJSON, function (err, obj) {
   obj = sortByDate(obj)
   obj = groupByDate(obj)
 
-  fs.writeFile(outputJSON, JSON.stringify(obj), 'utf8', () => {
-    console.log(`🎉  Done! Generated JSON file ${outputJSON}`)
+  fs.writeFile(outputJSON, JSON.stringify(obj), 'utf8', (err) => {
+    if (err) throw new Error(err)
+    console.log(`🎉  Done! Sorted by date and groupified by date into JSON file: ${outputJSON}`)
   })
-  
 })
