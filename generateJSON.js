@@ -6,7 +6,6 @@ require('dotenv').config()
 const argv = require('minimist')(process.argv.slice(2))
 const cloudinary = require('cloudinary')
 const fs = require('fs')
-const _cliProgress = require('cli-progress')
 
 const outputJSONFileName = argv.out || './output.json'
 const cloudinaryFolder = argv.cloudinaryFolder || ''
@@ -61,14 +60,9 @@ const getCloudinaryFolder = ({ resourceType }) => {
   const cloudinaryCombinedArr = [...cloudinaryImagesArr, ...cloudinaryVideosArr] // and then just combine them here
   const outputArr = []
   
-  const progressBar = new _cliProgress.Bar({}, _cliProgress.Presets.shades_classic)
-  let progressBarVal = 0
-  console.log('🍜  Generating JSON')
-  progressBar.start(cloudinaryCombinedArr.length, progressBarVal)
+  console.log(`🍜  Generating JSON for ${cloudinaryCombinedArr.length} items`)
 
   for (const mediaItem of cloudinaryCombinedArr) {
-    progressBarVal += 1
-    progressBar.update(progressBarVal)
 
     const {
       width,
@@ -106,8 +100,6 @@ const getCloudinaryFolder = ({ resourceType }) => {
       aspectRatio: parseFloat((width / height).toFixed(3), 10), // limit to 3 decimal places
     })
   }
-
-  progressBar.stop()
 
   fs.writeFile(outputJSONFileName, JSON.stringify(outputArr), 'utf8', err => {
     if (err) throw err
