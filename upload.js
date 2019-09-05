@@ -10,6 +10,8 @@ const fs = require('fs')
 const recursive = require('recursive-readdir')
 const sharp = require('sharp')
 const exif = require('exiftool')
+const shortHash = require('short-hash');
+
 
 // local utils
 const parseDMS = require('./utils/parseDMS')
@@ -27,14 +29,14 @@ const cloud_name = process.env.cloud_name
 const api_key = process.env.api_key
 const api_secret = process.env.api_secret
 
-const logFileName = 'upload-log.txt'
+const errorLogFileName = '_upload-errors.txt'
 
 const MAX_IMAGE_DIMENSION = 1920 // width or height. set a limit so you don't upload images too large and risk up your storage limit
 const MAX_VIDEO_DIMENSION = 1024
 
 cloudinary.config({ cloud_name, api_key, api_secret })
 
-const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, gpsGeocode, created, dominantColor }, type) => new Promise(async (resolve, reject) => {
+const uploadImageToCloudinary = (fileBuffer, file, { location, date, gpsData, gpsGeocode, created, dominantColor }, type) => new Promise(async (resolve, reject) => {
   // Cloudinary only allows String types in its context
   location = location ? location.toString() : ''
   date = date ? date.toString() : ''
@@ -43,6 +45,8 @@ const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, gpsGeoco
   const lng = gpsData.lng ? gpsData.lng.toString() : ''
 
   const { neighbourhood, city, country, streetName } = gpsGeocode
+
+  const hashedFilename = shortHash(file)
 
   let additionalOptions = {}
   if (type === 'video') {
@@ -63,6 +67,7 @@ const uploadImageToCloudinary = (fileBuffer, { location, date, gpsData, gpsGeoco
   try {
     await cloudinary.uploader.upload_stream({
       resource_type: "auto",
+      public_id: hashedFilename, // we create the public_id based off a hashed file name, this is so we have a reference of what files exist already on cloudinary which we've already uploaded
       overwrite: true, // replace anything existing in cloudinary
       folder: cloudinaryFolder,
       // context is cloudinary's way of storing meta data about an image
@@ -137,8 +142,11 @@ recursive(localImgFolder, async (err, files) => {
       // get the date and filename, then remove the filename
       const date = isRoot ? null : fullPath.substring(breakCharIndex + 1).trim().split('/')[0]
 
-      console.log(`\n♻️  File ${successCount} of ${filteredFiles.length} - ${fullPath}`)
-      console.log(`📁  Apple folder location is ${location || 'not available'} and date is ${date || 'not available'}`)
+      console.log(`\n♻️  File ${successCount + 1} of ${filteredFiles.length}`)
+      console.log(`   "${fullPath}"`)
+      console.log(`📁  Apple Photo folders found:`)
+      console.log(`   Location: ${location || 'N/A'}`)
+      console.log(`   Date: ${date || 'N/A'}`)
 
       // GPS EXIF data
       const gpsData = {
@@ -170,14 +178,16 @@ recursive(localImgFolder, async (err, files) => {
           gpsData.lat = parseDMS(gpsLatitude)
           gpsData.lng = parseDMS(gpsLongitude)
           
-          console.log(`🌏  Got lat: ${gpsData.lat}, lng: ${gpsData.lng}`)
+          console.log(`   Got lat: ${gpsData.lat}, lng: ${gpsData.lng}`)
 
           if (process.env.google_api) {
             console.log(`🌍  Doing Google reverse geocode`)
             
             gpsGeocode = await getGeocode(gpsData)
-            console.log(`🌍  Reverse geocode done, got ${gpsGeocode.neighbourhood}, ${gpsGeocode.streetName}, ${gpsGeocode.city}, ${gpsGeocode.country}`)
+            console.log(`   Reverse geocode done, got ${gpsGeocode.neighbourhood}, ${gpsGeocode.streetName}, ${gpsGeocode.city}, ${gpsGeocode.country}`)
           }
+        } else {
+          console.log(`   No Lat/Lng data found in EXIF data`)
         }
 
       } catch (err) {
@@ -198,7 +208,7 @@ recursive(localImgFolder, async (err, files) => {
           console.log(`🎨  Getting dominant color`)
           
           dominantColor = await getDominantColor(file)
-          console.log(`🎨  Done: ${dominantColor}`)
+          console.log(`   Done: ${dominantColor}`)
           
         } catch (err) {
           console.log(`❌  Error getting dominant color ${err}, using default: ${default_dominant_color}`)
@@ -206,11 +216,11 @@ recursive(localImgFolder, async (err, files) => {
         }
       }
 
-
       let uploadedFileData
+
       if (isVideo) {
         const fileBuffer = fs.readFileSync(file)
-        uploadedFileData = await uploadImageToCloudinary(fileBuffer, { location, date, gpsData, gpsGeocode, created, dominantColor }, 'video')
+        uploadedFileData = await uploadImageToCloudinary(fileBuffer, file, { location, date, gpsData, gpsGeocode, created, dominantColor }, 'video')
       } else {
 
         // Resize the file locally first using Sharp before uploading it (to minimise bandwidth usage)
@@ -223,7 +233,7 @@ recursive(localImgFolder, async (err, files) => {
           })
           .toBuffer()
 
-        uploadedFileData = await uploadImageToCloudinary(fileBuffer, { location, date, gpsData, gpsGeocode, created, dominantColor }, 'image')
+        uploadedFileData = await uploadImageToCloudinary(fileBuffer, file, { location, date, gpsData, gpsGeocode, created, dominantColor }, 'image')
       }
 
       if (uploadedFileData.err) {
@@ -238,9 +248,11 @@ recursive(localImgFolder, async (err, files) => {
       console.warn(`\n❌  Oh dear. Error uploading ${file}:`)
       console.warn(err)
 
-      const errMsg = `➡️  ${file} - ${JSON.stringify(err)}\n`
+      const errMsg = `➡️  ${file} - ${JSON.stringify(err.reason)}\n`
 
-      fs.appendFile(`${localImgFolder}/${logFileName}`, errMsg)
+      fs.appendFile(`${localImgFolder}/${errorLogFileName}`, errMsg, err => {
+        if (err) throw new Error(err)
+      })
       
       failedImgs.push({
         file,
@@ -253,9 +265,9 @@ recursive(localImgFolder, async (err, files) => {
 
   if (failedImgs.length) {
 
-    const formatErrors = failedImgs.map(err => `➡️  ${err.file} - ${JSON.stringify(err)}\n`)
+    const formatErrors = failedImgs.map(err => `➡️  ${err.file} - ${JSON.stringify(err.reason)}\n`)
 
-    console.log(`❌  ${failedImgs.length} files failed to upload, see below. Log also saved to file: ${localImgFolder}/${logFileName} \n`)
+    console.log(`❌  ${failedImgs.length} files failed to upload, see below. Log also saved to file: ${localImgFolder}/${errorLogFileName} \n`)
     console.log(...formatErrors)
   }
 
