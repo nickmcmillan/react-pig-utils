@@ -10,14 +10,14 @@ const fs = require('fs')
 const recursive = require('recursive-readdir')
 const sharp = require('sharp')
 const exif = require('exiftool')
-const shortHash = require('short-hash');
-
+const shortHash = require('short-hash')
 
 // local utils
 const parseDMS = require('./utils/parseDMS')
 const getFileData = require('./utils/getFileData')
 const getGeocode = require('./utils/getGeocode')
 const getDominantColor = require('./utils/getDominantColor')
+const convertVideo = require('./utils/convertVideo')
 
 const default_dominant_color = '#fff'
 const localImgFolder = argv.in
@@ -30,6 +30,7 @@ const api_key = process.env.api_key
 const api_secret = process.env.api_secret
 
 const errorLogFileName = '_upload-errors.txt'
+const tempVideoFileName = '_tempVideo.mp4'
 
 const MAX_IMAGE_DIMENSION = 1920 // width or height. set a limit so you don't upload images too large and risk up your storage limit
 const MAX_VIDEO_DIMENSION = 1024
@@ -138,7 +139,11 @@ recursive(localImgFolder, async (err, files) => {
       // use that value to split the string. before it is the location, after it is the date and filename
       // If the file is in the root of the source folder (#1 above) we can't infer any information about it,
       // so set location and date to null
-      const location = isRoot ? null : fullPath.substring(0, breakCharIndex)
+      const locationUnstripped = isRoot ? null : fullPath.substring(0, breakCharIndex)
+      const location = locationUnstripped.includes('/') ? locationUnstripped.split('/')[1] : locationUnstripped
+
+      console.log(locationUnstripped, location)
+      
       // get the date and filename, then remove the filename
       const date = isRoot ? null : fullPath.substring(breakCharIndex + 1).trim().split('/')[0]
 
@@ -219,7 +224,16 @@ recursive(localImgFolder, async (err, files) => {
       let uploadedFileData
 
       if (isVideo) {
-        const fileBuffer = fs.readFileSync(file)
+
+        let tempFile = file
+
+        try {
+          tempFile = await convertVideo(file, tempVideoFileName)
+        } catch (error) {
+          console.log(error)
+        }
+
+        const fileBuffer = fs.readFileSync(tempFile)
         uploadedFileData = await uploadImageToCloudinary(fileBuffer, file, { location, date, gpsData, gpsGeocode, created, dominantColor }, 'video')
       } else {
 
@@ -242,7 +256,17 @@ recursive(localImgFolder, async (err, files) => {
       }
 
       successCount += 1
+      try {
+        // check if tempVideoFileName exists, if so delete it
+        fs.access(tempVideoFileName, fs.constants.R_OK | fs.constants.W_OK, (err) => {
+          if (err) return
+          fs.unlinkSync(tempVideoFileName)
+        })
+      } catch (err) {
+        console.error(err)
+      }
       console.log(`✅  Done`)
+
 
     } catch (err) {
       console.warn(`\n❌  Oh dear. Error uploading ${file}:`)
