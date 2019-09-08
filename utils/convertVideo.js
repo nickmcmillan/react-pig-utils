@@ -18,7 +18,7 @@ module.exports = convertVideo = (file, tempVideoFileName) => new Promise(async (
       console.log('📼  Started converting video')
     })
     .on('error', (err) => {
-      console.log('  Error converting video', err)
+      console.log('   Error converting video', err)
       reject(err)
     })
     .on('end', (stdout, stderr) => {
