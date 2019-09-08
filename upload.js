@@ -187,12 +187,12 @@ recursive(localImgFolder, async (err, files) => {
 
           if (process.env.google_api) {
             console.log(`🌍  Doing Google reverse geocode`)
-            
             gpsGeocode = await getGeocode(gpsData)
-            console.log(`   Reverse geocode done, got ${gpsGeocode.neighbourhood}, ${gpsGeocode.streetName}, ${gpsGeocode.city}, ${gpsGeocode.country}`)
+            console.log(`   Reverse geocode done, got: ${gpsGeocode.neighbourhood}, ${gpsGeocode.streetName}, ${gpsGeocode.city}, ${gpsGeocode.country}`)
           }
+
         } else {
-          console.log(`   No Lat/Lng data found in EXIF data`)
+          console.log(`   No lat/lng data found`)
         }
 
       } catch (err) {
@@ -228,6 +228,7 @@ recursive(localImgFolder, async (err, files) => {
         let tempFile = file
 
         try {
+          
           tempFile = await convertVideo(file, tempVideoFileName)
         } catch (error) {
           console.log(error)
@@ -258,6 +259,7 @@ recursive(localImgFolder, async (err, files) => {
       successCount += 1
       try {
         // check if tempVideoFileName exists, if so delete it
+        // https://nodejs.org/api/fs.html#fs_fs_access_path_mode_callback
         fs.access(tempVideoFileName, fs.constants.R_OK | fs.constants.W_OK, (err) => {
           if (err) return
           fs.unlinkSync(tempVideoFileName)
