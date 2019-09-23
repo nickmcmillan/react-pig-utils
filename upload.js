@@ -71,6 +71,10 @@ const uploadImageToCloudinary = (fileBuffer, file, { location, date, gpsData, gp
       public_id: hashedFilename, // we create the public_id based off a hashed file name, this is so we have a reference of what files exist already on cloudinary which we've already uploaded
       overwrite: true, // replace anything existing in cloudinary
       folder: cloudinaryFolder,
+      angle: 'exif',
+      transformation: {
+        angle: 'exif',
+      },
       // context is cloudinary's way of storing meta data about an image
       context: {
         location,
@@ -99,6 +103,10 @@ let successCount = 0
 // read the localImgFolder
 recursive(localImgFolder, async (err, files) => {
   if (err) throw new Error(err)
+
+  // not guaranteed of the order we'll receive from readdir
+  // https://stackoverflow.com/questions/8977441/does-readdir-guarantee-an-order
+  files.sort()
 
   // we are only interested in the following file formats
   const filteredFiles = files.filter(file => {
@@ -130,7 +138,11 @@ recursive(localImgFolder, async (err, files) => {
       // 4) ./Beirut, Beirut - Younas Gebayli Street, 13 October 2017
       // So we always know the portion after the last comma is the date, and everything before that is the address
 
-      const localImgFolderWithoutDotSlash = localImgFolder.replace('./', '')
+      let localImgFolderWithoutDotSlash = localImgFolder
+      if (localImgFolder.match(/\/.*\//)) { // Check if there are 2 forward slashes
+        localImgFolderWithoutDotSlash = localImgFolder.replace('/', ''); // Remove the first one
+      }
+
       const fullPath = file.replace(localImgFolderWithoutDotSlash, '').substring(1)
       const isRoot = !fullPath.includes('/')
 
@@ -240,6 +252,7 @@ recursive(localImgFolder, async (err, files) => {
 
         // Resize the file locally first using Sharp before uploading it (to minimise bandwidth usage)
         const fileBuffer = await sharp(file)
+          .rotate() // else it strips exif data. ffs.
           .resize({
             width: MAX_IMAGE_DIMENSION,
             height: MAX_IMAGE_DIMENSION,
