@@ -23,7 +23,7 @@
     "fluent-ffmpeg": "^2.1.2",
     "jimp": "^0.6.4",
     "jsonfile": "^5.0.0",
-    "minimist": "^1.2.0",
+    "minimist": "^1.2.6",
     "node-geocoder": "^3.24.0",
     "recursive-readdir": "^2.2.2",
     "sharp": "^0.23.0",
